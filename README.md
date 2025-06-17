@@ -1,6 +1,6 @@
 # AMRanalysis
 R script for modelling resistance indicators in Madagascar
-# Ciprofloxacin Resistance in Salmonella Typhi
+# Drug Resistance in Salmonella Typhi,iNTS,Shigella and Klebsiella isolates.
 
 This repository contains an R script (`finalanalysisl.R`) for a logistic regression analysis on factors associated with drug resistance in *Salmonella Typhi, iNTS,Shigella and Klebsiella isolates.
 
