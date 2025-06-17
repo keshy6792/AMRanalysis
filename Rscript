@@ -1,0 +1,366 @@
+install.packages(c("readxl", "purrr","dplyr"))  # need to first install the relevant packages
+library(readxl)
+library(purrr)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+# Define the file path
+file_path <- "~/Desktop/SETA DATASET/SETAMGR.xlsx"  
+
+# Read all sheets into a named list
+all_sheets <- excel_sheets(file_path) %>%
+  set_names() %>%
+  map(~ read_excel(file_path, sheet = .x))
+all_sheets
+all_sheets[["PE"]]     # Access the PE (patient enrollment) sheet
+all_sheets[["L2"]]     # Access the lab data
+all_sheets[["C1"]]     # Access the clinical sheet
+names(all_sheets)      # List of all sheet names
+glimpse(all_sheets[["PE"]])   # Preview a specific sheet
+#renaming columns
+
+pe <- all_sheets[["PE"]] %>%
+  mutate(
+    sex = case_when(
+      pe01 == 1 ~ "Male",
+      pe01 == 2 ~ "Female",
+      TRUE ~ NA_character_
+    )
+  )
+
+glimpse(pe)
+#visualisation
+pe <- pe %>%
+  mutate(age_group = cut(
+    age,
+    breaks = c(0, 4, 14, 24, 49, Inf),
+    labels = c("0–4", "5–14", "15–24", "25–49", "50+"),
+    right = FALSE
+  ))
+#plot
+ggplot(pe, aes(x = age_group, fill = sex)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Distribution of Patients by Age Group and Sex",
+    x = "Age Group",
+    y = "Number of Patients",
+    fill = "Sex"
+  ) +
+  theme_minimal()
+#trying a pyramid graph below
+library(dplyr)
+
+pyramid_df <- pe %>%
+  mutate(age_group = cut(
+    age,
+    breaks = c(0, 4, 14, 24, 49, Inf),
+    labels = c("0–4", "5–14", "15–24", "25–49", "50+"),
+    right = FALSE
+  )) %>%
+  group_by(age_group, sex) %>%
+  summarise(n = n()) %>%
+  ungroup() %>%
+  mutate(n = ifelse(sex == "Male", -n, n))
+##############pyramid plot below
+
+ggplot(pyramid_df, aes(x = age_group, y = n, fill = sex)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  coord_flip() +
+  scale_y_continuous(labels = abs) +
+  labs(
+    title = "Population Pyramid: Age and Sex Distribution",
+    x = "Age Group",
+    y = "Number of Patients",
+    fill = "Sex"
+  ) +
+  theme_minimal()
+#############I THINK BAR GRAPH IS BETTER
+#creating sex and age group summaries
+
+# Sex summary
+sex_summary <- pe %>%
+  count(sex) %>%
+  mutate(
+    percent = round(100 * n / sum(n), 1),
+    variable = "Sex"
+  )
+
+# Age group summary
+age_summary <- pe %>%
+  count(age_group) %>%
+  mutate(
+    percent = round(100 * n / sum(n), 1),
+    variable = "Age Group"
+  )
+
+# Sex summary
+sex_summary <- pe %>%
+  count(sex) %>%
+  mutate(
+    level = as.character(sex),
+    percent = round(100 * n / sum(n), 1),
+    variable = "Sex"
+  ) %>%
+  select(variable, level, n, percent)
+
+# Age group summary
+age_summary <- pe %>%
+  count(age_group) %>%
+  mutate(
+    level = as.character(age_group),
+    percent = round(100 * n / sum(n), 1),
+    variable = "Age Group"
+  ) %>%
+  select(variable, level, n, percent)
+
+# Combine them
+summary_table <- bind_rows(sex_summary, age_summary)
+View(summary_table)
+
+#creating analytical dataset
+#########extracting sheets
+
+pe   <- all_sheets[["PE"]]
+c1   <- all_sheets[["C1"]]
+c2   <- all_sheets[["C2"]]
+c3   <- all_sheets[["C3"]]
+c4   <- all_sheets[["C4"]]
+l2   <- all_sheets[["L2"]]
+
+#standardising common identifier across all sheets i.e. psl,c1sl.l2sl to ID
+#creating a function
+rename_serial_label <- function(df, old_name) {
+  df %>% rename(id = all_of(old_name))
+}
+
+#applying function to each sheet
+pe <- rename_serial_label(all_sheets[["PE"]], "pesl")
+c1 <- rename_serial_label(all_sheets[["C1"]], "c1sl")
+c2 <- rename_serial_label(all_sheets[["C2"]], "c2sl")
+c3<-rename_serial_label(all_sheets[["C3"]], "c3sl")
+c4<-rename_serial_label(all_sheets[["C4"]], "c4sl")
+l2<-rename_serial_label(all_sheets[["L2"]], "l2sl")
+l3<-rename_serial_label(all_sheets[["L3"]], "l3sl")
+fu<-rename_serial_label(all_sheets[["FU"]], "fusl")
+
+#merging all sheets progressively
+merged_data <- pe %>%
+  left_join(c1, by = "id") %>%
+  left_join(c2, by = "id") %>%
+  left_join(c3, by = "id") %>%
+  left_join(c4, by = "id") %>%
+  left_join(l2, by = "id")
+glimpse(merged_data)
+View(merged_data)
+
+merged_data %>%  count(id) %>%filter(n > 1)
+
+sum(duplicated(merged_data$id)) #837 duplicated ID entries exist
+duplicates<-merged_data %>%
+  filter(duplicated(id) | duplicated(id, fromLast = TRUE)) # to show rows where duplicated
+                                                            
+View(duplicates)#entries exist
+#trying to review the duplicates
+duplicates_df <- merged_data %>%
+  filter(duplicated(id) | duplicated(id, fromLast = TRUE)) %>%
+  arrange(id)
+View(duplicates_df)
+c1 %>%
+  count(id) %>%
+  filter(n > 1)
+c2 %>%
+  count(id) %>%
+  filter(n > 1)
+c3 %>%
+  count(id) %>%
+  filter(n > 1)
+c4 %>%
+  count(id) %>%
+  filter(n > 1)
+l2%>%
+  count(id) %>%
+  filter(n > 1) %>% print(n=Inf)
+
+pe%>%
+  count(id) %>%
+  filter(n > 1)
+print(l2,)
+
+
+#want to see the unique difference in each duplicated entry
+dup_pairs <- merged_data  %>%
+  filter(id %in% duplicates$id) %>%
+  group_by(id) %>%
+  mutate(row = row_number()) %>%
+  pivot_wider(names_from = row, values_from = everything())
+
+# Step 2: Summarise where values differ
+difference_report <- duplicates %>%
+  group_by(id) %>%
+  summarise(across(everything(), ~n_distinct(.x) > 1), .groups = "drop") %>%
+  pivot_longer(-id, names_to = "variable", values_to = "differs") %>%
+  filter(differs == TRUE)
+#duplicates are being drived from the multiple hospitaloisation reports
+
+
+#create analytical dataset, 
+#clear unnecessary tables from the analytical dataset
+
+analytical_dataset<- pe %>% select(id,pe01,pe01a,pe03,pe04a3,pe05a,age,month) %>%
+                                   rename(id=id,
+                                      sex=pe01,
+                                      pregnant=pe01a,
+                                      location=pe03,
+                                      recruitment=pe05a,
+                                      malariardt=pe04a3,
+                                      age=age,
+                                      month=month)
+#since hospitalization records are a repeated measure, im flagging hospitalisation as a binary event
+#for ease of preliminary analysis
+
+      # Step 1: Creating a hospitalisation flag (1 pp if they appear in C3)
+hospital_flag <- c3 %>%
+  distinct(id) %>%         # Keeps only unique patient IDs
+  mutate(hospitalized = 1)  # Assigns a flag
+
+# Step 2: Merge this with your main analytic dataset
+analytical_dataset <- analytical_dataset %>%
+  left_join(hospital_flag, by = "id") %>%
+  mutate(hospitalized = ifelse(is.na(hospitalized), 0, hospitalized))  # Fill in 0s
+
+
+#step 3 :add premendication, BMI and comorbidities data
+analytical_dataset <- analytical_dataset %>%
+  left_join(
+    c1 %>%
+      select(id, c112, c113, c105, c106),
+    by = "id"
+  )%>% rename(weight=c112,
+              height=c113,
+              comorbidities=c106,
+              premedication=c105)
+analytical_dataset$BMI <- analytical_dataset$weight / ( (analytical_dataset$height / 100)^2 )
+
+lab_data<-l2%>%
+          select(id,l204,l205b1,l205b2,l205b3,l205b4,l205b5,l205b6,l205b7,l205b8,
+                 l205b9,l205b10,l205b11,l205b12,l205b13,l205b14,l205b15,l205b15x,
+                 l205d,l205d1,l205d2,l205d8,
+                 l205d10,l205d11,l205d15,l205e,
+                 l205e1,l205e2,l205e8,
+                 l205e10,l205e11,l205e15)
+
+
+#merging w analytical dataset
+analytical_dataset <- analytical_dataset %>%
+  left_join(lab_data, by = "id")
+
+#filtering out each drug-pathogen combination
+      #a)k.pneumoniae~beta-lactams (Ampicillin, Amoxicillin-clavulanate)
+
+kleb_data <- analytical_dataset %>%
+  filter(l204 == 1) %>%  # blood culture positive
+  filter(l205b2 == 1 | grepl("kleb", l205d, ignore.case = TRUE))
+
+#creating the klebsiella-betalactam resistance flag
+kleb_data <- kleb_data %>%
+  mutate(
+    kleb_betalactam_resistant = if_else(
+      l205d1 == 1 | l205d2 == 1 | l205d15 == 1 |
+        l205e1 == 1 | l205e2 == 1 | l205e15 == 1,
+      1, 0
+    )
+  )
+#adding it back to my analytical dataset
+analytical_dataset <- analytical_dataset %>%
+  left_join(
+    kleb_data %>%
+      select(id, kleb_betalactam_resistant),
+    by = "id"
+  ) %>%
+  mutate(kleb_betalactam_resistant = replace_na(kleb_betalactam_resistant, 0))
+
+#b)Salmonella Typhi~Ciprofloxacin(fluoroquinolone)
+
+  #filtering for culture positive and S.typhi
+typhi_data <- analytical_dataset %>%
+  filter(l204 == 1) %>%  # blood culture positive
+  filter(l205b3 == 1 | grepl("typhi", l205d, ignore.case = TRUE))
+
+#creating resistance flag for ciprofloxacin
+typhi_data <- typhi_data %>%
+  mutate(
+    typhi_cipro_resistant = if_else(
+      l205d8 == 1,
+      1, 0
+    )
+  )
+
+#merge to analytical dataset
+analytical_dataset <- analytical_dataset %>%
+  left_join(
+    typhi_data %>%
+      select(id, typhi_cipro_resistant),
+    by = "id"
+  ) %>%
+  mutate(typhi_cipro_resistant = replace_na(typhi_cipro_resistant, 0))
+
+#c)(iNTS)~Ciprofloxacin
+ints_data <- analytical_dataset %>%
+  filter(l204 == 1) %>%  # blood culture positive
+  filter(l205b7 == 1 | l205b8 == 1)
+
+
+#create resistance flag
+ints_data <- ints_data %>%
+  mutate(
+    ints_cipro_resistant = if_else(
+      l205d8 == 1,
+      1, 0
+    )
+  )
+#merge to analytical dataset
+analytical_dataset <- analytical_dataset %>%
+  left_join(
+    ints_data %>%
+      select(id, ints_cipro_resistant),
+    by = "id"
+  ) %>%
+  mutate(ints_cipro_resistant = replace_na(ints_cipro_resistant, 0))
+
+#creating "pandemic period" as a variable
+analytical_dataset <- analytical_dataset %>%
+  mutate(
+    recruitment = as.Date(recruitment),  # Ensure it's a Date object
+    pandemic_period = if_else(
+      recruitment >= as.Date("2020-03-11") & recruitment <= as.Date("2023-03-10"),
+      1, 0
+    )
+  )
+#running the logistic regression model 
+    #1.Klebsiella ~ Beta-lactam resistance
+kleb_model <- glm(
+  kleb_betalactam_resistant ~ age + sex + premedication + pregnant + pandemic_period + comorbidities,
+  data = analytical_dataset,
+  family = binomial
+)
+summary(kleb_model)
+#the model above failed to converge and im currently doing a diagnostic check to see which
+#variable is causing this and why
+
+    #2.Salmonella Typhi~Ciprofloxacin(fluoroquinolone)
+typhi_model <- glm(
+  typhi_cipro_resistant ~ age + sex + premedication + pregnant + pandemic_period + comorbidities,
+  data = analytical_dataset,
+  family = binomial
+)
+summary(typhi_model)
+    #3.(iNTS)~Ciprofloxacin
+ints_model <- glm(
+  ints_cipro_resistant ~ age + sex + premedication + pregnant + pandemic_period + comorbidities,
+  data = analytical_dataset,
+  family = binomial
+)
+summary(typhi_model)
+#the model above failed to converge and im currently doing a diagnostic check to see which
+#variable is causing this and why
